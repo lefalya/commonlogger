@@ -9,16 +9,16 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/lefalya/commonlogger/interfaces"
-	"github.com/lefalya/commonlogger/schema"
+
 	"github.com/stretchr/testify/assert"
 )
+
+var logger = slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
 func TestInfoLog(t *testing.T) {
 
 	t.Run("successfull print loginfo", func(t *testing.T) {
 
-		logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 		context := "submission-created"
 		dummyCreatorUUID := uuid.New().String()
 		dummyCampaignUUID := uuid.New().String()
@@ -34,7 +34,6 @@ func TestInfoLog(t *testing.T) {
 
 	t.Run("invalid args modulo", func(t *testing.T) {
 
-		logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 		context := "submission-created"
 		dummyCreatorUUID := uuid.New().String()
 
@@ -50,8 +49,6 @@ func TestInfoLog(t *testing.T) {
 func TestErrorLog(t *testing.T) {
 
 	t.Run("successfull print logerror", func(t *testing.T) {
-
-		logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
 		DUMMY_ERROR := errors.New("10000;(collection) MySQL fatal error")
 		details := "errcon HY2000 mysql host not found!"
@@ -80,9 +77,25 @@ func TestErrorLog(t *testing.T) {
 		assert.True(t, alphanumericRegex.MatchString(resultErr.Id))
 	})
 
-	t.Run("invalid args modulo", func(t *testing.T) {
+	t.Run("error message with no error code", func(t *testing.T) {
 
-		logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+		DUMMY_ERROR := errors.New("(commonpagination) Redis fatal error!")
+		details := "redis timeout"
+		context := "commonpagination.redis_fatal_error"
+
+		resultErr := LogError(
+			logger,
+			DUMMY_ERROR,
+			details,
+			context,
+			"collectionUUID", uuid.New().String(),
+			"campaignUUID", uuid.New().String(),
+		)
+
+		assert.NotNil(t, resultErr)
+	})
+
+	t.Run("invalid args modulo", func(t *testing.T) {
 
 		DUMMY_ERROR := errors.New("10000;(collection) MySQL fatal error")
 		details := "errcon HY2000 mysql host not found!"
@@ -115,8 +128,6 @@ func TestErrorLog(t *testing.T) {
 
 	t.Run("successfull return logerror but invalid logsource", func(t *testing.T) {
 
-		logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-
 		DUMMY_ERROR := errors.New("10000;(collection MySQL fatal error")
 		details := "errcon HY2000 mysql host not found!"
 		context := "AddCampaign.MYSQL_FATAL_ERROR"
@@ -143,60 +154,21 @@ func TestErrorLog(t *testing.T) {
 
 		assert.True(t, alphanumericRegex.MatchString(resultErr.Id))
 	})
-}
 
-type Submission struct {
-	UUID    string
-	Caption string
-}
+	t.Run("no error present", func(t *testing.T) {
 
-func LogErrorSubmission(
-	logger *slog.Logger,
-	errorSubject error,
-	errorDetail string,
-	context string,
-	submission any,
-) *schema.CommonError {
+		details := "errcon HY2000 mysql host not found!"
+		context := "AddCampaign.MYSQL_FATAL_ERROR"
 
-	submissionAs := submission.(Submission)
+		resultErr := LogError(
+			logger,
+			nil,
+			details,
+			context,
+			"collectionUUID", uuid.New().String(),
+			"campaignUUID", uuid.New().String(),
+		)
 
-	return LogError(
-		logger,
-		errorSubject,
-		errorDetail,
-		context,
-		"uuid", submissionAs.UUID,
-		"caption", submissionAs.Caption,
-	)
-}
-
-func SetRedis(
-	submission interface{},
-	loghelper interfaces.LogHelper,
-) *schema.CommonError {
-
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-
-	return loghelper(
-		logger,
-		errors.New("10000;(commonlogger) test error"),
-		"error detail",
-		"TestParticipantSetRedis.Error",
-		submission,
-	)
-}
-
-func TestCallbackLogHelper(t *testing.T) {
-
-	dummySubmission := Submission{
-		UUID:    uuid.New().String(),
-		Caption: "dummy caption",
-	}
-
-	errorResult := SetRedis(
-		dummySubmission,
-		LogErrorSubmission,
-	)
-
-	assert.NotNil(t, errorResult)
+		assert.Nil(t, resultErr)
+	})
 }

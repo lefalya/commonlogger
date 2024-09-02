@@ -6,10 +6,15 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/lefalya/commonlogger/schema"
-
 	"math/rand"
 )
+
+type CommonError struct {
+	Id          string
+	Context     string
+	Err         error
+	ErrResponse error
+}
 
 func generateRandomString(length int) string {
 
@@ -54,36 +59,56 @@ func LogError(
 	err error,
 	errDetail string,
 	context string,
-	args ...string) *schema.CommonError {
+	args ...string) *CommonError {
+
+	if err == nil || logger == nil {
+
+		// no point to continue the procedures, hence direct exit
+		return nil
+	}
+
+	var returnedError CommonError
+	var argsGroup slog.Attr
 
 	slog.SetDefault(logger)
 	identifier := generateRandomString(10)
 
-	if len(args)%2 != 0 {
-
-		LogInfo(logger, "logError.InvalidArgs", "args", "null")
-	} else {
-
-		logsource := ""
-		re := regexp.MustCompile(`\((.*?)\)`)
-		match := re.FindStringSubmatch(err.Error())
-
-		if len(match) > 1 {
-			logsource = match[1]
-
-		}
-
+	// process args
+	if len(args)%2 == 0 {
+		// only process args with correct modulo
 		var keyValues []interface{}
 		for i := 0; i < len(args); i += 2 {
 			keyValues = append(keyValues, args[i], args[i+1])
 		}
 
-		argsGroup := slog.Group(
+		argsGroup = slog.Group(
 			"args",
 			keyValues...,
 		)
+	} else {
 
-		errorGroup := slog.Group(
+		// will notify user the absence of args
+		LogInfo(logger, "logError.InvalidArgs", "args", "null")
+	}
+
+	// retrieve logsource
+	logsource := ""
+	re := regexp.MustCompile(`\((.*?)\)`)
+	match := re.FindStringSubmatch(err.Error())
+
+	if len(match) > 1 {
+		logsource = match[1]
+	}
+
+	// compose error group
+	errorMessageSplited := strings.Split(err.Error(), ";")
+
+	var errorGroup slog.Attr
+	if len(errorMessageSplited) > 1 {
+		// Error with code, used by modules.
+		// contains indentifier for faster log tracing.
+
+		errorGroup = slog.Group(
 			"error",
 			"logsource", logsource,
 			"code", strings.Split(err.Error(), ";")[0],
@@ -93,20 +118,35 @@ func LogError(
 			"identifier", identifier,
 		)
 
-		slog.Error(
-			err.Error(),
-			argsGroup,
-			errorGroup,
+		returnedError = CommonError{
+			Id:          identifier,
+			Context:     context,
+			Err:         err,
+			ErrResponse: errors.New(err.Error() + ";" + identifier),
+		}
+	} else {
+		// For error without code, used by dependencies.
+
+		errorGroup = slog.Group(
+			"error",
+			"logsource", logsource,
+			"message", err.Error(),
+			"detail", errDetail,
+			"context", context,
 		)
 
+		returnedError = CommonError{
+			Id:      identifier,
+			Context: context,
+			Err:     err,
+		}
 	}
 
-	errorResponse := errors.New(err.Error() + " - ID: " + identifier)
+	slog.Error(
+		err.Error(),
+		argsGroup,
+		errorGroup,
+	)
 
-	return &schema.CommonError{
-		Id:          identifier,
-		Context:     context,
-		Err:         err,
-		ErrResponse: errorResponse,
-	}
+	return &returnedError
 }
